@@ -62,6 +62,10 @@ class _TouchControllerState extends State<TouchController> {
                 zoom: 18.0,
               ),
               myLocationEnabled: true,
+              onMapCreated: (GoogleMapController controller) {
+                this.mapController = controller;
+                this._setStartingLocation(controller);
+              },
             ),
           ),
         ),
@@ -73,6 +77,9 @@ class _TouchControllerState extends State<TouchController> {
           children: <Widget>[
             new Text(
               device == null ? "Not connected" : "Connected",
+              style: TextStyle(
+                color: Colors.white,
+              )
             ),
             new Text(
               value.toString(),
@@ -102,6 +109,13 @@ class _TouchControllerState extends State<TouchController> {
                 color: Colors.white,
               )
             ),
+            new Text(
+              "GPS Speed: " + (speed == -1 ? "No fix" : speed.toString() + "m/s"),
+              style: TextStyle(
+                fontSize: 30,
+                color: Colors.white,
+              )
+            ),
           ],
         ),
         GestureDetector(
@@ -121,18 +135,33 @@ class _TouchControllerState extends State<TouchController> {
   int value = 40;
   int valueSent = 40;
 
+  double speed = 0;
+
   Timer _debounce;
 
   // WARN: y for us
   double _currentY = 0;
   double _lastY = 0;
 
-  Future<LatLng> _getStartingLocation() async {
+  _setStartingLocation(GoogleMapController controller) async {
     var location = location_services.Location();
-    location_services.LocationData _currentLocation;
-    _currentLocation = await location.getLocation();
-    return LatLng(_currentLocation.latitude, _currentLocation.longitude);
+    location.onLocationChanged().listen((location_services.LocationData currentLocation) {
+      this._setMapLocation(controller, currentLocation);
+    });
+    this._setMapLocation(controller, await location.getLocation());
   }
+
+  _setMapLocation(GoogleMapController controller, location_services.LocationData loc) async {
+    setState(() {
+      speed = loc.speed;
+    });
+
+    controller.animateCamera(CameraUpdate.newCameraPosition(CameraPosition(
+      target: LatLng(loc.latitude, loc.longitude),
+      zoom: 16,
+    )));
+  }
+
 
   /*_setCameraPos() async {
     var location = location_services.Location();
@@ -185,7 +214,6 @@ class _MyHomePageState extends State<MyHomePage> {
     /// Start scanning
     print("start scanning");
     flutterBlue.scan().listen((scanResult) async {
-      print(scanResult.device.name);
       if (scanResult.device.name != 'FBoard') return;
 
       print("device found");
@@ -196,23 +224,29 @@ class _MyHomePageState extends State<MyHomePage> {
           List<BluetoothService> services = await device.discoverServices();
           print("got services");
           services.forEach((service) async {
-            print("service: " + service.uuid.toString());
-            if (service.uuid.toString() != '000000ff-0000-1000-8000-00805f9b34fb') return;
+            var serviceUuid = service.uuid.toString();
+            print("service: " + serviceUuid);
+            if (serviceUuid == '000000ff-0000-1000-8000-00805f9b34fb') this._addMoveDescriptor(service);
+            if (serviceUuid == '000000ee-0000-1000-8000-00805f9b34fb') this._addLightDescriptor(service);
 
-            print("found char");
-            var characteristics = service.characteristics;
-            characteristic = characteristics[0];
           });
-
-          var descriptors = characteristic.descriptors;
-          for(BluetoothDescriptor d in descriptors) {
-            print("descriptor: " + d.uuid.toString());
-            if (d.uuid.toString() == '00003333-0000-1000-8000-00805f9b34fb') move = d;
-            if (d.uuid.toString() == '') lights = d;
-          }
         }
       });
     });
+  }
+
+  void _addMoveDescriptor(BluetoothService service) {
+    for(BluetoothDescriptor d in service.characteristics[0].descriptors) {
+      print("descriptor: " + d.uuid.toString());
+      if (d.uuid.toString() == '00003333-0000-1000-8000-00805f9b34fb') move = d;
+    }
+  }
+
+  void _addLightDescriptor(BluetoothService service) {
+    for(BluetoothDescriptor d in service.characteristics[0].descriptors) {
+      print("descriptor: " + d.uuid.toString());
+      if (d.uuid.toString() == '00002222-0000-1000-8000-00805f9b34fb') lights = d;
+    }
   }
 
   @override
@@ -233,7 +267,7 @@ class _MyHomePageState extends State<MyHomePage> {
         onPressed: _startScanning,
         tooltip: 'Start scan',
         child: Icon(Icons.bluetooth_searching),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      ),
     );
   }
 }
